@@ -1,0 +1,361 @@
+#!/bin/bash
+usage(){
+    echo "$0 [lucid]"
+}
+[ ${UID} -ne 0 ] && echo "be you root?" && exit
+
+######################################################################
+# see if we asked for another distribution
+#
+DIST=$1;
+FOUND_IT=0
+if [ -z ${DIST} ];then DIST=lucid; fi
+for d in lucid; do
+    if [ "$DIST" == "${d}" ]; then FOUND_IT=1; fi
+done
+if [ ${FOUND_IT} -eq 0 ]; then usage ;exit -1; fi
+#
+######################################################################
+
+
+######################################################################
+# Prerequisites
+#
+PREREQS="debootstrap unzip ruby"
+NEED=''
+for p in ${PREREQS}; do
+    dpkg -l ${p} | grep  -q "^ii *${p}"
+    if [ $? -ne 0 ]; then
+        NEED="${NEED} ${p}"
+    fi
+done
+if [ "${NEED}" != '' ];then
+    echo "you need to: apt-get install -y ${NEED}"
+    exit 1;
+    #apt-get install -y  ${NEED}
+fi
+#
+######################################################################
+
+######################################################################
+# Set up the rest of the environment
+
+EC2_PRIVATE_KEY=eir
+EC2_AMITOOL_HOME=/usr/local/amazon/ec2-ami-tools
+EC2_APITOOL_HOME=/usr/local/amazon/ec2-api-tools
+
+AMI_BIN=${EC2_AMITOOL_HOME}/bin/
+API_BIN=${EC2_APITOOL_HOME}/bin/
+
+AMITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.zip"
+AMITOOLS_TARBALL="/opt/ec2-ami-tools.zip"
+AMITOOLS_BASEDIR="${EC2_AMITOOL_HOME}"
+
+APITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-api-tools.zip"
+APITOOLS_TARBALL="/opt/ec2-api-tools.zip"
+APITOOLS_BASEDIR="${EC2_APITOOL_HOME}"
+   
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${API_BIN}:${AMI_BIN}"
+
+if [ ! -d /usr/local/amazon ];then mkdir -p /usr/local/amazon; fi
+#
+################################################################################
+
+################################################################################
+# AMI tools
+#
+if [ ! -f ${AMITOOLS_TARBALL} ];then 
+    wget -qO ${AMITOOLS_TARBALL} ${AMITOOLS_SOURCE}; 
+fi
+if [ ! -d ${AMITOOLS_BASEDIR} ];then 
+    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
+    (cd ${TMPDIR}; unzip ${AMITOOLS_TARBALL})
+    mv $(ls -1d ${TMPDIR}/ec2-ami-*) ${AMITOOLS_BASEDIR}
+    rm -fr ${TMPDIR}
+fi
+
+################################################################################
+# API tools
+#
+if [ ! -f ${APITOOLS_TARBALL} ];then 
+    wget -qO ${APITOOLS_TARBALL} ${APITOOLS_SOURCE}; 
+fi
+if [ ! -d ${APITOOLS_BASEDIR} ];then 
+    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
+    (cd ${TMPDIR}; unzip ${APITOOLS_TARBALL})
+    mv $(ls -1d ${TMPDIR}/ec2-api-*) ${APITOOLS_BASEDIR}
+    rm -fr ${TMPDIR}
+fi
+#
+################################################################################
+
+################################################################################
+# Dependencies
+#
+if [ ! -f /usr/lib/ruby/1.8/i486-linux/openssl.so ]; then apt-get install -y libopenssl-ruby1.8; fi
+for cmd in debootstrap unzip ruby;do 
+    if [ -z $(which ${cmd}) ] ;then apt-get install -y ${cmd}; fi
+done
+#
+################################################################################
+
+################################################################################
+# Set up our credentials
+#
+. /home/whitejs/.credentials
+AWS_USER=$(aws_account_number)
+AWS_ACCESS=$(aws_access_key_id)
+AWS_SECRET=$(aws_secret_access_key)
+IMAGE=/opt/amazon/ubuntu.fs
+MNTPT="/mnt/loop"
+IMGBASE=$(basename ${IMAGE})
+IMDIR=$(dirname ${IMAGE})
+export EC2_APITOOL_HOME API_BIN 
+export EC2_AMITOOL_HOME AMI_BIN 
+export EC2_SECRETS PATH IMAGE MNTPT
+export AWS_PKEY AWS_CERT AWS_USER AWS_ACCESS AWS_SECRET
+#
+######################################################################
+
+######################################################################
+# See if we're ready...
+#
+mount | grep -q ${IMAGE} && (echo "${IMAGE} Already mounted. Bailing..." && exit 0)
+if [ -z ${AWS_USER} ];then 
+    echo "AWS variables not defined. Something went wrong setting up ENV"
+    exit 
+fi
+#
+######################################################################
+
+######################################################################
+# Create the base_system
+#
+/bin/rm ${IMAGE}*
+echo
+echo "Creating the disk image..."
+if [ ! -d ${IMDIR} ];then mkdir ${IMDIR};fi
+if [ ! -d ${MNTPT} ];then mkdir ${MNTPT}; fi
+dd if=/dev/zero of=${IMAGE} count=4096 bs=1M
+echo "Formating the disk..."
+mke2fs -F -j ${IMAGE}
+mount -o loop ${IMAGE} ${MNTPT}
+echo "Installing the base system..."
+debootstrap --variant=buildd --arch i386 ${DIST} ${MNTPT} http://archive.ubuntu.com/ubuntu/
+#
+######################################################################
+
+########################################################################
+# This is the setup script that is manually run on monkey deployed hosts
+# It starts a chain of events that configures the host
+#
+/bin/mv ${MNTPT}/etc/rc.local ${MNTPT}/etc/rc.local.orig
+cat /dev/null > ${MNTPT}/etc/rc.local
+SCRIPTS="$(cd $(dirname $0); pwd)/scripts"
+
+[ ! -d ${MNTPT}/usr/local/sbin ] && mkdir -p ${MNTPT}/usr/local/sbin
+for script in $(cd ${SCRIPTS}; ls); do
+    install -m 0755 ${SCRIPTS}/${script} ${MNTPT}/usr/local/sbin/${script}
+    echo "/usr/local/sbin/${script}" >> ${MNTPT}/etc/rc.local
+done
+
+cat<<EOSING >>${MNTPT}/etc/rc.local
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+TRIES=0;LENGTH=0;
+
+while [ \${TRIES} -lt 10 -a \${LENGTH} -eq 0 ];do
+    wget -qO /usr/local/sbin/singularity \
+       "$(dig +short -ttxt singularity.websages.com|sed -e 's/"//g')" 
+    LENGTH=\$(/usr/bin/wc -l /usr/local/sbin/singularity|/bin/sed -e's/ .*//g' -e's/^ *//g')
+    TRIES=\$(expr \${TRIES} + 1)
+    echo \${TRIES}
+done
+
+if [ -s /usr/local/sbin/singularity ];then
+    /bin/chmod 755 /usr/local/sbin/singularity
+    /usr/local/sbin/singularity > /var/log/singularity.log
+fi
+
+# Erase this script after running
+cp /etc/rc.local.orig /etc/rc.local
+EOSING
+chmod 755 ${MNTPT}/etc/rc.local
+#
+########################################################################
+
+
+######################################################################
+# Prepare the OS via a chroot
+
+echo
+echo "Preparing the OS."
+cat<<EOF >${MNTPT}/root/osprep
+#!/bin/bash
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+cat<<EOFST >/etc/fstab
+proc            /proc           proc    nodev,noexec,nosuid 0       0
+EOFST
+
+mount /proc
+cd /dev
+echo -n "creating Devices."
+/sbin/MAKEDEV console
+echo -n "."
+/sbin/MAKEDEV std
+echo -n "."
+/sbin/MAKEDEV generic
+echo "Done."
+
+cat<<EOIF >>/etc/network/interfaces
+auto lo
+iface lo inet loopback
+auto eth0
+iface eth0 inet dhcp 
+EOIF
+
+cat<<EOFST >>/etc/fstab
+/dev/sda1 / ext3 defaults 0 1
+/dev/sda2 /mnt ext3 defaults 1 2
+/dev/sda3 swap swap defaults 0 0 
+EOFST
+
+apt-get update && apt-get -y dist-upgrade
+
+apt-get install -y locales
+echo "Setting up locales..."
+cat<<EOLG >/etc/locale.gen
+en_US ISO-8859-1
+en_US.ISO-8859-15 ISO-8859-15
+en_US.UTF-8 UTF-8
+EOLG
+/usr/sbin/locale-gen
+
+apt-get install -y openssh-server curl locales linux-image-virtual grub vim 
+
+# GRUB fixups
+if [ -f /boot/grub/menu.lst ]; then /bin/rm /boot/grub/menu.lst; fi
+update-grub -y 
+/bin/cp /boot/grub/menu.lst /boot/grub/menu.lst.orig
+sed -e 's/^# kopt=root=.*/# kopt=root=\/dev\/sda1 ro/' \
+    -e 's/ root=UUID=.* ro/ root=\/dev\/sda1 ro/g'     \
+    -e 's/^uuid.*/root            (hd0)/'              \
+        /boot/grub/menu.lst.orig > /boot/grub/menu.lst
+
+# configure grub:
+
+if [ -d /lib/tls ];then
+    echo "Disabling tls..."
+    /bin/mv /lib/tls /lib/tls.disabled
+fi
+
+echo "Setting hostname..."
+echo "hostname-not-set" > /etc/hostname
+echo "set prefer-visible-bell" > /etc/skel/.inputrc
+
+######################################################################
+# Remove this crap and put it in singularity
+mkdir /etc/skel/.ssh
+cat<<EODSAK >/etc/skel/.ssh/authorized_keys
+ssh-dss AAAAB3NzaC1kc3MAAACBALa6xIb9VqCmop2II9/ni4DEo5X5X7MAV9L/GhoF159lIxCReFwXXxYOp9xGcQd68JMT34H2lbYEy6VNCZVJ46CVXKM0TBZdVYJuDjFAjA0yJLBpsA45VNOgf/ft52XYXMSZEyyUfLu6KrnFZtjiRD5gl0XNS7+dV4sCEYbpoLbnAAAAFQDNWh7gRkE6sfQaWJfPbHcDGYtiiQAAAIBMFD0hicjTyCjzbOLt0SUgY+OdFQEM9FKysdf4NsMM1+wlzw6U5vd7/QlNY50ythzw0YgK1DfHfkmIQT+frvDLX4Rl4th0mS92txaUUdmu49SEy3jEsbrplr5f/PkMOrzG8L5aE1OgXE77XHjejmXdVYcvPxc2inSRdD0l27lOkwAAAIAXljxAemz71k+iEBbBqJhbtMz36ezBJLa9pedeMXdQ0cThpi7Z4kx4TAXUg9KK4jZXTxZSjM9FFRBDw7mRop2suSEJJaFgZOop0yFJevFkCSMKZeWCTNxw9sYq+0qSnRdqD+gt7p7Lq4Yd1DF8YqFx1zC6tFE5uD491icLHVuxug== whitejs@eir.websages.com
+EODSAK
+chmod -R 600 /etc/skel/.ssh
+
+# add our opt user (this shouldn't be here)
+useradd -u 400 -g 100 opt -m -k /etc/skel
+echo "Setting root password..."
+sed -e 's/root:[^:]*./root:\$1\$vQWL0ukf\$LQqTWN2l6QE8\/2jnit\.Mh\.:/' \
+    -e 's/opt:[^:]*./opt:\$1\$vlItA5rw\$I1\/VvKEkDWjTlhTgEACOh1:/' \
+    /etc/shadow > /etc/shadow.tmp
+mv /etc/shadow.tmp /etc/shadow
+chmod 600 /etc/shadow
+chown root:root /etc/shadow
+######################################################################
+umount /proc
+echo "OS prepped, exiting chroot..."
+exit;
+EOF
+
+chmod 755 ${MNTPT}/root/osprep
+/bin/cp /etc/resolv.conf ${MNTPT}/etc/resolv.conf
+chroot ${MNTPT} /root/osprep || exit 1
+
+sync;sync;sync
+/bin/rm ${MNTPT}/etc/resolv.conf
+sleep 10;
+umount -lf /mnt/loop
+sleep 10;
+#
+######################################################################
+
+######################################################################
+# Bundle the image for shipping to S3
+
+UMASK=$(umask)
+umask 0177
+AWS_PKEY=$(mktemp /dev/shm/aws_pk.pem.XXXXXXXXXXXXXXXXXXX)
+aws_private_key > ${AWS_PKEY}
+AWS_CERT=$(mktemp /dev/shm/aws_cert.pem.XXXXXXXXXXXXXXXXXXX)
+aws_certificate > ${AWS_CERT}
+umask ${UMASK}
+
+(cd ${IMDIR}; env EC2_HOME="${EC2_AMITOOL_HOME}" ${AMI_BIN}/ec2-bundle-image -d ${IMDIR} -i ${IMAGE} --arch i386 --privatekey ${AWS_PKEY} --cert ${AWS_CERT} -u ${AWS_USER})
+
+#
+######################################################################
+
+######################################################################
+# Ship the image to S3
+# http://docs.amazonwebservices.com/AmazonS3/2006-03-01/index.html?BucketRestrictions.html
+BUCKET="ubuntu-${DIST}-$(md5sum ${IMAGE}|awk '{print $1}')"
+
+echo "Shipping ${BUCKET} to S3..."
+(cd ${IMDIR}; env EC2_HOME="${EC2_AMITOOL_HOME}" ${AMI_BIN}/ec2-upload-bundle -b websages-${BUCKET} -m ${IMAGE}.manifest.xml -a ${AWS_ACCESS} -s ${AWS_SECRET} )
+#
+######################################################################
+
+######################################################################
+# Register the AMI
+#
+sleep 10
+echo "Registering the image..."
+IMAGE=$(env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-register --private-key ${AWS_PKEY} --cert ${AWS_CERT} websages-${BUCKET}/ubuntu.fs.manifest.xml)
+AMI=$(echo $IMAGE|awk '{print $2}')
+
+#
+######################################################################
+
+######################################################################
+# Start an instance of it
+#
+
+#AKI=aki-4c7d9525  #assumes partitioned with grub.conf on first partition
+AKI=aki-407d9529  #assumes one big partition
+
+echo "Starting an instance of ${AMI}..."
+INSTANCE_DAT=$(mktemp /tmp/instance.XXXX)
+env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-run-instances --private-key ${AWS_PKEY} --cert ${AWS_CERT} ${AMI} --key eir --kernel ${AKI} --block-device-mapping '/dev/sda2=ephemeral0' --block-device-mapping '/dev/sda3=ephemeral1' > ${INSTANCE_DAT}
+
+INSTANCE=$(cat ${INSTANCE_DAT}| awk '{print $2}'| grep "^i-")
+rm ${INSTANCE_DAT}
+#
+######################################################################
+
+######################################################################
+# Watch the console...
+#
+if [ ! -z "${INSTANCE}" ];then
+    while [ 1 ]; do
+        clear
+env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-get-console-output --private-key ${AWS_PKEY} --cert ${AWS_CERT} ${INSTANCE}
+    sleep 20
+    done
+fi
+#
+######################################################################
+
+######################################################################
+#Clean up non shell stuff 
+#
+rm ${AWS_CERT} ${AWS_PKEY}
+#
+######################################################################

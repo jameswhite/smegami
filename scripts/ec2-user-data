@@ -1,0 +1,40 @@
+#!/bin/bash
+export PATH="/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"
+###################################################
+# This should be called by all ec2 AMI's rc.local
+###################################################
+
+# fqdn: hostname.fqdn.com
+# secret: Thisshouldbesomethingyounevertellanyonez,k?thxbai.
+# stringroot: http://github.com/fapestniegd/superstring/tree/master%2Fstrings%2Fscripts%2F
+# [super]strings: script1_name
+# [super]strings: script2_name
+# [super]strings: script3_name
+
+FQDN=$(wget -qO - http://169.254.169.254/latest/user-data| grep "^ *fqdn:"|\
+    sed -e 's/.*fqdn: *//g')
+hostname ${FQDN}
+SECRET=$(wget -qO - http://169.254.169.254/latest/user-data| \
+    grep "^ *secret:"|sed -e 's/.*secret: *//g')
+STRINGROOT=$(wget -qO - http://169.254.169.254/latest/user-data| \
+    grep "^ *stringroot:"|sed -e 's/.*stringroot: *//g')
+if [ -z ${STRINGROOT} ];then
+    STRINGROOT="https://github.com/fapestniegd/superstring/tree/master%2Fstrings%2Fscripts%2F"
+fi
+LOGDIR="/var/log/superstring"
+if [ ! -d ${LOGDIR} ];then mkdir -p ${LOGDIR};fi
+export FQDN SECRET STRINGROOT LOGDIR
+
+for script in `wget -qO - http://169.254.169.254/latest/user-data |\
+        egrep "^ *string:|^ *superstring:"| sed -e 's/.*string: *//g'|grep -v "$(basename $0)"`;do
+    LENGTH=0; # github is giving me 0 byte replies...
+    ATTEMPT=0
+    while [ ${LENGTH} -eq 0 -a ${ATTEMPT} -lt 10 ]; do
+        /usr/bin/wget --no-check-certificate -qO /tmp/${script} "${STRINGROOT}${script}?raw=true"
+        LENGTH=$(/usr/bin/wc -l /tmp/${script}|/bin/sed -e's/ .*//g' -e's/^ *//g')
+        ATTEMPT=`expr ${ATTEMPT} + 1`
+        echo "script - ${script} (attempt ${ATTEMPT}) ${LENGTH} line reply."
+    done
+    chmod 755 /tmp/${script}
+    /tmp/${script} > ${LOGDIR}/${script}.log 2>&1
+done
