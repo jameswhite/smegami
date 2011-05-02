@@ -1,0 +1,8 @@
+Some bash scripts to make base amazon machine images that can bootstrap themselves into installing puppet.
+
+mkubuami - make an ubuntu ami image with deboosttrap
+mkdebami - make an debian ami image with deboosttrap
+mkfedami - make a  fedora ami image
+mkcntami - make a  centoa ami image
+
+you get it by now, right?
