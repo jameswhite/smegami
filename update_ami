@@ -1,0 +1,82 @@
+#!/bin/bash
+(cd $(dirname $0); ./dependencies)
+(cd $(dirname $0); ./credentials)
+(cd $(dirname $0); ./ec2-apps)
+[ -z ${IMAGE} ] && exit
+IMDIR=$(dirnam ${IMAGE})
+######################################################################
+# Bundle the image for shipping to S3
+#
+ami_cmd ec2-bundle-image -d ${IMDIR} -i ${IMAGE} --arch i386
+#
+######################################################################
+
+######################################################################
+# Ship the image to S3
+# http://docs.amazonwebservices.com/AmazonS3/2006-03-01/index.html?BucketRestrictions.html
+BUCKET="ubuntu-${DIST}-$(md5sum ${IMAGE}|awk '{print $1}')"
+echo "Shipping ${BUCKET} to S3..."
+ami_cmd ec2-upload-bundle -b websages-${BUCKET} -m ${IMAGE}.manifest.xml -a ${AWS_ACCESS} -s ${AWS_SECRET} 
+#
+######################################################################
+
+######################################################################
+# Register the AMI
+#
+AKI=aki-4c7d9525 # assumes partitioned with grub.conf on first partition ( pv-grub-hd00 )
+AKI=aki-406d9529 # assumes one big partition ( pv-grub-hd0 )
+sleep 10         # we don't see the image for a bit...
+echo "Registering the image..."
+AMI=$(api_cmd ec2-register websages-${BUCKET}/ubuntu.fs.manifest.xml --kernel ${AKI}|awk '{print $2}')
+#
+######################################################################
+
+######################################################################
+# Start an instance of it
+#
+echo "Starting an instance of ${AMI}..."
+INSTANCE=$(api_cmd ec2-run-instances ${AMI} -key eir --kernel ${AKI} --block-device-mapping '/dev/sda2=ephemeral0' --block-device-mapping '/dev/sda3=ephemeral1'|awk '{print $2}'| grep "^i-")
+#
+######################################################################
+
+######################################################################
+# Watch the console until it's output is greater thant 10 lines and it stops growing for 20 seconds
+#
+if [ ! -z "${INSTANCE}" ];then
+    export CONSOLE_OUTPUT=$(mktemp /tmp/ec2.console.XXXX)
+    export CONSOLE_OUTPUT_LENGTH=0;
+    while [ ${CONSOLE_OUTPUT_LENGTH} -lt 10 ]; do 
+        clear; 
+        api_cmd ec2-get-console-output ${INSTANCE} > ${CONSOLE_OUTPUT} 2>&1; 
+        sleep 20; 
+        CONSOLE_OUTPUT_LENGTH=$(wc -l ${CONSOLE_OUTPUT}|awk '{print $1}'); 
+    done
+    export LAST_LENGTH=${CONSOLE_OUTPUT_LENGTH}
+    while [ ${CONSOLE_OUTPUT_LENGTH} -ne ${LAST_LENGTH} ]; do 
+        clear; 
+        LAST_LENGTH=${CONSOLE_OUTPUT_LENGTH}; 
+        api_cmd ec2-get-console-output ${INSTANCE} > ${CONSOLE_OUTPUT} 2>&1;
+        sleep 20; 
+        CONSOLE_OUTPUT_LENGTH=$(wc -l ${CONSOLE_OUTPUT}|awk '{print $1}'); 
+    done
+    cat ${CONSOLE_OUTPUT} 
+fi
+#
+######################################################################
+
+######################################################################
+# Terminate the instance
+#
+if [ ! -z "${INSTANCE}" ];then
+    api_cmd ec2-terminate-instances ${INSTANCE}
+fi
+#
+######################################################################
+
+######################################################################
+# Unregister the image
+#
+echo "Un-registering the image..."
+api_cmd ec2-deregister ${AMI}
+#
+######################################################################

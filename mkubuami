@@ -1,4 +1,8 @@
 #!/bin/bash
+(cd $(dirname $0); ./dependencies)
+(cd $(dirname $0); ./credentials)
+(cd $(dirname $0); ./ec2-apps)
+
 usage(){
     echo "$0 [lucid]"
 }
@@ -14,106 +18,6 @@ for d in lucid; do
     if [ "$DIST" == "${d}" ]; then FOUND_IT=1; fi
 done
 if [ ${FOUND_IT} -eq 0 ]; then usage ;exit -1; fi
-#
-######################################################################
-
-
-######################################################################
-# Prerequisites
-#
-PREREQS="debootstrap unzip ruby"
-NEED=''
-for p in ${PREREQS}; do
-    dpkg -l ${p} | grep  -q "^ii *${p}"
-    if [ $? -ne 0 ]; then
-        NEED="${NEED} ${p}"
-    fi
-done
-if [ "${NEED}" != '' ];then
-    echo "you need to: apt-get install -y ${NEED}"
-    exit 1;
-    #apt-get install -y  ${NEED}
-fi
-#
-######################################################################
-
-######################################################################
-# Set up the rest of the environment
-
-EC2_PRIVATE_KEY=eir
-EC2_AMITOOL_HOME=/usr/local/amazon/ec2-ami-tools
-EC2_APITOOL_HOME=/usr/local/amazon/ec2-api-tools
-
-AMI_BIN=${EC2_AMITOOL_HOME}/bin/
-API_BIN=${EC2_APITOOL_HOME}/bin/
-
-AMITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.zip"
-AMITOOLS_TARBALL="/opt/ec2-ami-tools.zip"
-AMITOOLS_BASEDIR="${EC2_AMITOOL_HOME}"
-
-APITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-api-tools.zip"
-APITOOLS_TARBALL="/opt/ec2-api-tools.zip"
-APITOOLS_BASEDIR="${EC2_APITOOL_HOME}"
-   
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${API_BIN}:${AMI_BIN}"
-
-if [ ! -d /usr/local/amazon ];then mkdir -p /usr/local/amazon; fi
-#
-################################################################################
-
-################################################################################
-# AMI tools
-#
-if [ ! -f ${AMITOOLS_TARBALL} ];then 
-    wget -qO ${AMITOOLS_TARBALL} ${AMITOOLS_SOURCE}; 
-fi
-if [ ! -d ${AMITOOLS_BASEDIR} ];then 
-    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
-    (cd ${TMPDIR}; unzip ${AMITOOLS_TARBALL})
-    mv $(ls -1d ${TMPDIR}/ec2-ami-*) ${AMITOOLS_BASEDIR}
-    rm -fr ${TMPDIR}
-fi
-
-################################################################################
-# API tools
-#
-if [ ! -f ${APITOOLS_TARBALL} ];then 
-    wget -qO ${APITOOLS_TARBALL} ${APITOOLS_SOURCE}; 
-fi
-if [ ! -d ${APITOOLS_BASEDIR} ];then 
-    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
-    (cd ${TMPDIR}; unzip ${APITOOLS_TARBALL})
-    mv $(ls -1d ${TMPDIR}/ec2-api-*) ${APITOOLS_BASEDIR}
-    rm -fr ${TMPDIR}
-fi
-#
-################################################################################
-
-################################################################################
-# Dependencies
-#
-if [ ! -f /usr/lib/ruby/1.8/i486-linux/openssl.so ]; then apt-get install -y libopenssl-ruby1.8; fi
-for cmd in debootstrap unzip ruby;do 
-    if [ -z $(which ${cmd}) ] ;then apt-get install -y ${cmd}; fi
-done
-#
-################################################################################
-
-################################################################################
-# Set up our credentials
-#
-. /home/whitejs/.credentials
-AWS_USER=$(aws_account_number)
-AWS_ACCESS=$(aws_access_key_id)
-AWS_SECRET=$(aws_secret_access_key)
-IMAGE=/opt/amazon/ubuntu.fs
-MNTPT="/mnt/loop"
-IMGBASE=$(basename ${IMAGE})
-IMDIR=$(dirname ${IMAGE})
-export EC2_APITOOL_HOME API_BIN 
-export EC2_AMITOOL_HOME AMI_BIN 
-export EC2_SECRETS PATH IMAGE MNTPT
-export AWS_PKEY AWS_CERT AWS_USER AWS_ACCESS AWS_SECRET
 #
 ######################################################################
 
@@ -287,75 +191,3 @@ sleep 10;
 #
 ######################################################################
 
-######################################################################
-# Bundle the image for shipping to S3
-
-UMASK=$(umask)
-umask 0177
-AWS_PKEY=$(mktemp /dev/shm/aws_pk.pem.XXXXXXXXXXXXXXXXXXX)
-aws_private_key > ${AWS_PKEY}
-AWS_CERT=$(mktemp /dev/shm/aws_cert.pem.XXXXXXXXXXXXXXXXXXX)
-aws_certificate > ${AWS_CERT}
-umask ${UMASK}
-
-(cd ${IMDIR}; env EC2_HOME="${EC2_AMITOOL_HOME}" ${AMI_BIN}/ec2-bundle-image -d ${IMDIR} -i ${IMAGE} --arch i386 --privatekey ${AWS_PKEY} --cert ${AWS_CERT} -u ${AWS_USER})
-
-#
-######################################################################
-
-######################################################################
-# Ship the image to S3
-# http://docs.amazonwebservices.com/AmazonS3/2006-03-01/index.html?BucketRestrictions.html
-BUCKET="ubuntu-${DIST}-$(md5sum ${IMAGE}|awk '{print $1}')"
-
-echo "Shipping ${BUCKET} to S3..."
-(cd ${IMDIR}; env EC2_HOME="${EC2_AMITOOL_HOME}" ${AMI_BIN}/ec2-upload-bundle -b websages-${BUCKET} -m ${IMAGE}.manifest.xml -a ${AWS_ACCESS} -s ${AWS_SECRET} )
-#
-######################################################################
-
-######################################################################
-# Register the AMI
-#
-sleep 10
-echo "Registering the image..."
-IMAGE=$(env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-register --private-key ${AWS_PKEY} --cert ${AWS_CERT} websages-${BUCKET}/ubuntu.fs.manifest.xml)
-AMI=$(echo $IMAGE|awk '{print $2}')
-
-#
-######################################################################
-
-######################################################################
-# Start an instance of it
-#
-
-#AKI=aki-4c7d9525  #assumes partitioned with grub.conf on first partition
-AKI=aki-407d9529  #assumes one big partition
-
-echo "Starting an instance of ${AMI}..."
-INSTANCE_DAT=$(mktemp /tmp/instance.XXXX)
-env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-run-instances --private-key ${AWS_PKEY} --cert ${AWS_CERT} ${AMI} --key eir --kernel ${AKI} --block-device-mapping '/dev/sda2=ephemeral0' --block-device-mapping '/dev/sda3=ephemeral1' > ${INSTANCE_DAT}
-
-INSTANCE=$(cat ${INSTANCE_DAT}| awk '{print $2}'| grep "^i-")
-rm ${INSTANCE_DAT}
-#
-######################################################################
-
-######################################################################
-# Watch the console...
-#
-if [ ! -z "${INSTANCE}" ];then
-    while [ 1 ]; do
-        clear
-env EC2_HOME="${EC2_APITOOL_HOME}" JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" ${API_BIN}/ec2-get-console-output --private-key ${AWS_PKEY} --cert ${AWS_CERT} ${INSTANCE}
-    sleep 20
-    done
-fi
-#
-######################################################################
-
-######################################################################
-#Clean up non shell stuff 
-#
-rm ${AWS_CERT} ${AWS_PKEY}
-#
-######################################################################

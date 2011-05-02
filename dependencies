@@ -1,0 +1,24 @@
+#!/bin/bash
+
+######################################################################
+# Prerequisites
+#
+PREREQS="debootstrap unzip ruby"
+NEED=''
+for p in ${PREREQS}; do
+    dpkg -l | grep  -q "^ii *${p}"
+    if [ $? -ne 0 ]; then
+        NEED="${NEED} ${p}"
+    fi
+done
+if [ ! -f /usr/lib/ruby/1.8/i486-linux/openssl.so ]; then 
+    NEED="${NEED} libopenssl-ruby1.8"
+fi
+
+if [ "${NEED}" != '' ];then
+    echo "you need to: apt-get install -y ${NEED}"
+    exit 1;
+    #apt-get install -y  ${NEED}
+fi
+######################################################################
+

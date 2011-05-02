@@ -1,0 +1,99 @@
+#!/bin/bash
+######################################################################
+# Set up the rest of the environment
+export IMAGE=/opt/amazon/ubuntu.fs
+export IMDIR=$(dirname ${IMAGE})
+
+export EC2_PRIVATE_KEY=eir
+export EC2_AMITOOL_HOME=/usr/local/amazon/ec2-ami-tools
+export EC2_APITOOL_HOME=/usr/local/amazon/ec2-api-tools
+
+export AMI_BIN=${EC2_AMITOOL_HOME}/bin/
+export API_BIN=${EC2_APITOOL_HOME}/bin/
+
+export AMITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-ami-tools.zip"
+export AMITOOLS_TARBALL="/opt/ec2-ami-tools.zip"
+export AMITOOLS_BASEDIR="${EC2_AMITOOL_HOME}"
+
+export APITOOLS_SOURCE="http://s3.amazonaws.com/ec2-downloads/ec2-api-tools.zip"
+export APITOOLS_TARBALL="/opt/ec2-api-tools.zip"
+export APITOOLS_BASEDIR="${EC2_APITOOL_HOME}"
+   
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${API_BIN}:${AMI_BIN}"
+
+if [ ! -d /usr/local/amazon ];then mkdir -p /usr/local/amazon; fi
+#
+################################################################################
+
+################################################################################
+# AMI tools
+#
+if [ ! -f ${AMITOOLS_TARBALL} ];then 
+    wget -qO ${AMITOOLS_TARBALL} ${AMITOOLS_SOURCE}; 
+fi
+if [ ! -d ${AMITOOLS_BASEDIR} ];then 
+    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
+    (cd ${TMPDIR}; unzip ${AMITOOLS_TARBALL})
+    mv $(ls -1d ${TMPDIR}/ec2-ami-*) ${AMITOOLS_BASEDIR}
+    rm -fr ${TMPDIR}
+fi
+
+################################################################################
+# API tools
+#
+if [ ! -f ${APITOOLS_TARBALL} ];then 
+    wget -qO ${APITOOLS_TARBALL} ${APITOOLS_SOURCE}; 
+fi
+if [ ! -d ${APITOOLS_BASEDIR} ];then 
+    TMPDIR=$(mktemp -d /tmp/ec2.XXXX)
+    (cd ${TMPDIR}; unzip ${APITOOLS_TARBALL})
+    mv $(ls -1d ${TMPDIR}/ec2-api-*) ${APITOOLS_BASEDIR}
+    rm -fr ${TMPDIR}
+fi
+#
+################################################################################
+
+################################################################################
+#
+ami_cmd(){
+    COMMAND=$1; shift 1;
+    ARGUMENTS="$*"
+    if [ $COMMAND == "ec2-bundle-image" ]; then
+        UMASK=$(umask)
+        umask 0177
+        AWS_PKEY=$(mktemp /dev/shm/aws_pk.pem.XXXXXXXXXXXXXXXXXXX)
+        aws_private_key > ${AWS_PKEY}
+        AWS_CERT=$(mktemp /dev/shm/aws_cert.pem.XXXXXXXXXXXXXXXXXXX)
+        aws_certificate > ${AWS_CERT}
+        umask ${UMASK}
+        export EC2_HOME="${EC2_AMITOOL_HOME}" 
+        (cd $IMDIR; ${AMI_BIN}/${COMMAND} --privatekey ${AWS_PKEY} --cert ${AWS_CERT} -u ${AWS_USER}${ARGUMENTS})
+        rm ${AWS_CERT} ${AWS_PKEY}
+    else
+        (cd $IMDIR; ${AMI_BIN}/${COMMAND} ${ARGUMENTS})
+    fi
+}
+#
+################################################################################
+
+################################################################################
+#
+api_cmd(){
+    COMMAND=$1; shift 1;
+    ARGUMENTS="$*"
+    UMASK=$(umask)
+    umask 0177
+    AWS_PKEY=$(mktemp /dev/shm/aws_pk.pem.XXXXXXXXXXXXXXXXXXX)
+    aws_private_key > ${AWS_PKEY}
+    AWS_CERT=$(mktemp /dev/shm/aws_cert.pem.XXXXXXXXXXXXXXXXXXX)
+    aws_certificate > ${AWS_CERT}
+    umask ${UMASK}
+    export EC2_HOME="${EC2_APITOOL_HOME}" 
+    export JAVA_HOME="/usr/lib/jvm/java-6-sun-1.6.0.24/jre/" 
+    ${API_BIN}/${COMMAND} --private-key ${AWS_PKEY} \
+                          --cert ${AWS_CERT}        \
+                           ${ARGUMENTS} 
+    rm ${AWS_CERT} ${AWS_PKEY}
+}
+#
+################################################################################
