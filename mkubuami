@@ -43,7 +43,8 @@ echo
 echo "Creating the disk image..."
 if [ ! -d ${IMDIR} ];then mkdir ${IMDIR};fi
 if [ ! -d ${MNTPT} ];then mkdir ${MNTPT}; fi
-dd if=/dev/zero of=${IMAGE} count=8192 bs=1M
+#dd if=/dev/zero of=${IMAGE} count=4096 bs=1M
+dd if=/dev/zero of=${IMAGE} count=8192 bs=1M # we need 8GB to build the kernel
 echo "Formating the disk..."
 mke2fs -F -j ${IMAGE}
 mount -o loop ${IMAGE} ${MNTPT}
@@ -79,6 +80,10 @@ BINFILES="$(cd $(dirname $0); pwd)/bin"
 for bin in $(cd ${BINFILES}; ls); do
     install -m 0755 ${BINFILES}/${bin} ${MNTPT}/root/bin/${bin}
 done
+
+CONFFILES="$(cd $(dirname $0); pwd)/config"
+install -m 0755 ${CONFFILES}/config-custom ${MNTPT}/root/config-custom
+
 
 ########################################################################
 # This runs in the chroot'ed environment and gets our AMI ready...

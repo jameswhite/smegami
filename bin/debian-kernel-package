@@ -47,7 +47,7 @@ fi
 ################################################################################
 # Set up the source .config from ec2 kernel image
 ################################################################################
-cp $(ls -1 /boot/config-2.6.32-*-ec2|tail -1) ${BUILD_ROOT}/linux-source-${KERNEL}/.config
+cp /root/config-custom ${BUILD_ROOT}/linux-source-${KERNEL}/.config
 
 ################################################################################
 # changes made from the default -> 486-nfsroot
