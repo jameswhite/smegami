@@ -1,0 +1,7 @@
+#!/bin/bash
+[ ${UID} -ne 0 ] && echo "be you root?" && exit
+[ -z "$IMAGE" ] && export IMAGE=/opt/amazon/ubuntu.fs
+[ ! -f "$IMAGE" ] && echo "${IMAGE} not found" &&exit;
+mount -o loop ${IMAGE} /mnt/loop0 || exit
+chroot /mnt/loop0 || exit
+umount /mnt/loop0 || exit
