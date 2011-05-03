@@ -67,7 +67,7 @@ if [ ! -z "${INSTANCE}" ];then
         sleep 20; 
         CONSOLE_OUTPUT_LENGTH=$(wc -l ${CONSOLE_OUTPUT}|awk '{print $1}'); 
     done
-    cat ${CONSOLE_OUTPUT} 
+    cat ${CONSOLE_OUTPUT}
 fi
 #
 ######################################################################
@@ -86,5 +86,13 @@ fi
 #
 echo "Un-registering the image..."
 api_cmd ec2-deregister ${AMI}
+#
+######################################################################
+
+######################################################################
+# Delete the bucket
+#
+echo "Deleting the bucket"
+ami_cmd ec2-delete-bundle -b websages-${BUCKET} -m ${IMAGE}.manifest.xml -a ${AWS_ACCESS} -s ${AWS_SECRET} --clear
 #
 ######################################################################
