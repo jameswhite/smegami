@@ -1,8 +1,16 @@
 Some bash scripts to make base amazon machine images that can bootstrap themselves into installing puppet.
 
-mkubuami - make an ubuntu ami image with deboosttrap
-mkdebami - make an debian ami image with deboosttrap
-mkfedami - make a  fedora ami image
-mkcntami - make a  centoa ami image
+most of these will need sudo until I can convert them to fakeroot...
 
-you get it by now, right?
+dependencies - get the dependencies these scripts need
+credentials  - load up our aws credentials
+ec2-setup    - define some functions to make the rest of the scripts readable
+mkubuami     - create the ubuntu ami, install custom kernel and build script
+edit_ami     - mount; chroot into; unmount the image (for manual fixups)
+update_ami   - {bundle, sign, ship, register} the ami, start an instance, then
+               watch the console output until it stops growing, then 
+               terminate the instance and unregister the AMI
+
+bin/         - some binaries to copy to /root/bin
+packages/    - some packages to copy to /usr/local/pkg and install
+scripts/     - some script to run out of rc.local (to fetch puppet manifests)

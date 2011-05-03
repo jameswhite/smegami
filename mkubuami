@@ -53,25 +53,36 @@ debootstrap --variant=buildd --arch i386 ${DIST} ${MNTPT} http://archive.ubuntu.
 ######################################################################
 
 ########################################################################
-# This is the setup script that is manually run on monkey deployed hosts
-# It starts a chain of events that configures the host
+# we need to copy some things into the chrooted environment:
 #
+
+# rc.local scripts
 /bin/mv ${MNTPT}/etc/rc.local ${MNTPT}/etc/rc.local.orig
 cat /dev/null > ${MNTPT}/etc/rc.local
 SCRIPTS="$(cd $(dirname $0); pwd)/scripts"
-
 [ ! -d ${MNTPT}/usr/local/sbin ] && mkdir -p ${MNTPT}/usr/local/sbin
 for script in $(cd ${SCRIPTS}; ls); do
     install -m 0755 ${SCRIPTS}/${script} ${MNTPT}/usr/local/sbin/${script}
     echo "/usr/local/sbin/${script}" >> ${MNTPT}/etc/rc.local
 done
 
+# our custom kernel package
 PACKAGES="$(cd $(dirname $0); pwd)/packages"
 [ ! -d ${MNTPT}/usr/local/pkg ] && mkdir -p ${MNTPT}/usr/local/pkg
 for package in $(cd ${PACKAGES}; ls); do
     install -m 0755 ${PACKAGES}/${package} ${MNTPT}/usr/local/pkg/${pkg}
 done
 
+# our script to create the custom kernel package (for rebuilds)
+BINFILES="$(cd $(dirname $0); pwd)/bin"
+[ ! -d ${MNTPT}/root/bin ] && mkdir -p ${MNTPT}/root/bin
+for bin in $(cd ${BINFILES}; ls); do
+    install -m 0755 ${BINFILES}/${bin} ${MNTPT}/root/bin
+done
+
+########################################################################
+# This runs in the chroot'ed environment and gets our AMI ready...
+#
 cat<<EOSING >>${MNTPT}/etc/rc.local
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TRIES=0;LENGTH=0;
