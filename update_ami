@@ -31,10 +31,11 @@ ami_cmd ec2-upload-bundle -b websages-${BUCKET} -m ${IMAGE}.manifest.xml -a ${AW
 # Register the AMI
 #
 AKI=aki-4c7d9525 # assumes partitioned with grub.conf on first partition ( pv-grub-hd00 )
-AKI=aki-406d9529 # assumes one big partition ( pv-grub-hd0 )
+AKI=aki-407d9529 # assumes one big partition ( pv-grub-hd0 )
 sleep 10         # we don't see the image for a bit...
 echo "Registering the image..."
 AMI=$(api_cmd ec2-register websages-${BUCKET}/ubuntu.fs.manifest.xml --kernel ${AKI}|awk '{print $2}')
+[ -z "${AMI}" ] && exit;
 #
 ######################################################################
 
