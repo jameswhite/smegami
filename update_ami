@@ -1,13 +1,20 @@
 #!/bin/bash
-(cd $(dirname $0); ./dependencies)
-(cd $(dirname $0); ./credentials)
-(cd $(dirname $0); ./ec2-apps)
-[ -z ${IMAGE} ] && exit
-IMDIR=$(dirnam ${IMAGE})
+[ ${UID} -ne 0 ] && echo "be you root?" && exit
+
+BASEDIR=$(cd $(dirname $0);pwd)
+. ${BASEDIR}/dependencies
+. ${BASEDIR}/credentials
+. ${BASEDIR}/ec2-setup
+
+[ -z ${IMAGE} ] && IMAGE=/opt/amazon/ubuntu.fs
+[ -z ${DIST} ] && DIST=lucid
+
+IMDIR=$(dirname ${IMAGE})
 ######################################################################
 # Bundle the image for shipping to S3
 #
 ami_cmd ec2-bundle-image -d ${IMDIR} -i ${IMAGE} --arch i386
+[ ! -f ${IMAGE}.manifest.xml ] && echo "${IMAGE}.manifest.xml failed to build" && exit 1;
 #
 ######################################################################
 

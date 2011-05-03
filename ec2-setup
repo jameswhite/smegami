@@ -67,7 +67,7 @@ ami_cmd(){
         aws_certificate > ${AWS_CERT}
         umask ${UMASK}
         export EC2_HOME="${EC2_AMITOOL_HOME}" 
-        (cd $IMDIR; ${AMI_BIN}/${COMMAND} --privatekey ${AWS_PKEY} --cert ${AWS_CERT} -u ${AWS_USER}${ARGUMENTS})
+        (cd $IMDIR; ${AMI_BIN}/${COMMAND} --privatekey ${AWS_PKEY} --cert ${AWS_CERT} -u ${AWS_USER} ${ARGUMENTS})
         rm ${AWS_CERT} ${AWS_PKEY}
     else
         (cd $IMDIR; ${AMI_BIN}/${COMMAND} ${ARGUMENTS})
