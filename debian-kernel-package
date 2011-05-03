@@ -1,0 +1,93 @@
+#!/bin/bash
+################################################################################
+# Setting up variables
+################################################################################
+export INSPECT_INITRD=0
+#
+export KERNEL=2.6.32
+export BUILD_ROOT='/opt/local/src'
+export RAW_TARGET="/var/tmp/nfsroot"
+export LOG_FILE="/var/tmp/build.log.$(date +"%Y%m%d%H%M%S")"
+export REMOTE_TFTPROOT="192.168.1.217:/opt/local/tftpboot/pxelinux.kernels/fai/"
+export REMOTE_NFSROOT="192.168.1.217:/opt/local/fai/nfsroot-skrs0002/live/filesystem.dir"
+export APPEND_VERSION="ec2-websages"
+clear
+echo "log file is ${LOG_FILE}"
+echo -n > ${LOG_FILE}
+
+if [ ! -d ${BUILD_ROOT} ]; then
+    mkdir -p ${BUILD_ROOT}
+fi
+
+################################################################################
+# Get the dependencies
+# Source: http://newbiedoc.sourceforge.net/system/kernel-pkg.html
+################################################################################
+# and unpack the kernel
+echo -n "Verifying Packages: "
+apt-get install -y gcc kernel-package linux-image-ec2 linux-source-${KERNEL} libc6-dev \
+                   tk8.3 libncurses5-dev fakeroot git-core build-essential \
+                   zlib1g-dev ruby
+
+if [ ! -f /usr/src/linux-source-${KERNEL}.tar.bz2 ]; then
+    echo -n "Getting kernel source: "
+    apt-get install -y --reinstall linux-source-${KERNEL} 
+fi
+
+if [ ! -d ${BUILD_ROOT}/linux-source-${KERNEL} ]; then
+     echo -n "Un-packing kernel source: "
+     cd ${BUILD_ROOT}; 
+     tar xjf /usr/src/linux-source-${KERNEL}.tar.bz2
+fi
+
+# link it to /usr/src
+(cd /usr/src/; if [ -h "linux" ];then unlink linux ;fi)
+(cd /usr/src/; ln -s ${BUILD_ROOT}/linux-source-${KERNEL} linux)
+
+################################################################################
+# Set up the source .config from ec2 kernel image
+################################################################################
+cp $(ls -1 /boot/config-2.6.32-*-ec2|tail -1) ${BUILD_ROOT}/linux-source-${KERNEL}/.config
+
+################################################################################
+# changes made from the default -> 486-nfsroot
+################################################################################
+##
+## NFSROOT
+##
+#CONFIG_IP_PNP is not set -> CONFIG_IP_PNP=y
+#CONFIG_IP_PNP_DHCP  (not present)
+#CONFIG_IP_PNP_BOOTP (not present)
+#CONFIG_IP_PNP_RARP  (not present)
+#CONFIG_NFS_FS=m -> CONFIG_NFS_FS=y
+#CONFIG_NFS_V3=y 
+#CONFIG_NFS_V4=y
+#CONFIG_ROOT_NFS     (not present)
+## CONFIG_NFS_DIRECTIO *(1)
+##
+#CONFIG_E1000=m -> CONFIG_E1000=y
+#CONFIG_BNX2=m ->  CONFIG_BNX2=y
+#CONFIG_VIA_RHINE=m -> CONFIG_VIA_RHINE=y # soekris
+#
+#CONFIG_M486=y
+## For the D-Link DUB-E100 (I carry one of these around) to work: 
+#CONFIG_NETDEVICES=y
+#CONFIG_USB=m -> CONFIG_USB=y
+#CONFIG_NET=y
+#CONFIG_USB_USBNET=m -> CONFIG_USB_USBNET=y
+#CONFIG_USB_NET_AX8817X=m ->  CONFIG_USB_NET_AX8817X=y
+#
+# *(1) CONFIG_NFS_DIRECTIO hard-coded to yes 2.6.25
+# http://mirror.celinuxforum.org/gitstat//commit-detail.php?commit=ecfc555a8327ff09b07066d73a98c04115007eec
+
+################################################################################
+# BUILDING THE PACKAGE
+################################################################################
+echo -n "Building old kernel config (taking all defaults): "
+cd ${BUILD_ROOT}/linux-source-${KERNEL}; 
+yes "" | make oldconfig
+
+echo -n "Making the kernel Package: "
+cd ${BUILD_ROOT}/linux-source-${KERNEL} ;
+fakeroot make-kpkg --append-to-version=${APPEND_VERSION} --revision 1 kernel_image
+

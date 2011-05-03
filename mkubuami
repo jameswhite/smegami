@@ -66,6 +66,12 @@ for script in $(cd ${SCRIPTS}; ls); do
     echo "/usr/local/sbin/${script}" >> ${MNTPT}/etc/rc.local
 done
 
+PACKAGES="$(cd $(dirname $0); pwd)/packages"
+[ ! -d ${MNTPT}/usr/local/pkg ] && mkdir -p ${MNTPT}/usr/local/pkg
+for package in $(cd ${PACKAGES}; ls); do
+    install -m 0755 ${PACKAGES}/${package} ${MNTPT}/usr/local/pkg/${pkg}
+done
+
 cat<<EOSING >>${MNTPT}/etc/rc.local
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TRIES=0;LENGTH=0;
@@ -97,6 +103,7 @@ chmod 755 ${MNTPT}/etc/rc.local
 echo
 echo "Preparing the OS."
 cat<<EOF >${MNTPT}/root/osprep
+
 #!/bin/bash
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 cat<<EOFST >/etc/fstab
@@ -121,11 +128,14 @@ iface eth0 inet dhcp
 EOIF
 
 cat<<EOFST >>/etc/fstab
-/dev/xvda1 / ext3 defaults 0 1
-/dev/xvda2 /mnt ext3 defaults 1 2
-/dev/xvda3 swap swap defaults 0 0 
+/dev/sda1 / ext3 defaults 0 1
+/dev/sda2 /mnt ext3 defaults 1 2
+/dev/sda3 swap swap defaults 0 0 
 EOFST
 
+cat<<EOSL > /etc/apt/sources.list
+deb http://archive.ubuntu.com/ubuntu lucid main universe multiverse restricted
+EOSL
 apt-get update && apt-get -y dist-upgrade
 
 apt-get install -y locales
@@ -137,14 +147,15 @@ en_US.UTF-8 UTF-8
 EOLG
 /usr/sbin/locale-gen
 
-apt-get install -y openssh-server curl locales linux-image-virtual grub vim 
+apt-get install -y openssh-server curl locales grub vim 
+dpkg -i /usr/local/pkg/*.deb
 
 # GRUB fixups
 if [ -f /boot/grub/menu.lst ]; then /bin/rm /boot/grub/menu.lst; fi
 update-grub -y 
 /bin/cp /boot/grub/menu.lst /boot/grub/menu.lst.orig
-sed -e 's/^# kopt=root=.*/# kopt=root=\/dev\/xvda1 ro/' \
-    -e 's/ root=UUID=.* ro/ root=\/dev\/xvda1 ro/g'     \
+sed -e 's/^# kopt=root=.*/# kopt=root=\/dev\/sda1 ro/' \
+    -e 's/ root=UUID=.* ro/ root=\/dev\/sda1 ro/g'     \
     -e 's/^uuid.*/root            (hd0)/'              \
         /boot/grub/menu.lst.orig > /boot/grub/menu.lst
 
