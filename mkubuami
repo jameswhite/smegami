@@ -44,6 +44,7 @@ dd if=/dev/zero of=${IMAGE} count=4096 bs=1M
 #dd if=/dev/zero of=${IMAGE} count=8192 bs=1M # we need 8GB to build the kernel
 echo "Formating the disk..."
 mke2fs -F -j ${IMAGE}
+/sbin/e2label ${IMAGE} uec-rootfs
 mount -o loop ${IMAGE} ${MNTPT}
 echo "Installing the base system..."
 debootstrap --variant=buildd --arch i386 ${DIST} ${MNTPT} http://archive.ubuntu.com/ubuntu/
@@ -140,13 +141,16 @@ iface eth0 inet dhcp
 EOIF
 
 cat<<EOFST >>/etc/fstab
-/dev/sda1 / ext3 defaults 0 1
-/dev/sda2 /mnt ext3 defaults 1 2
-/dev/sda3 swap swap defaults 0 0 
+LABEL=uec-rootfs /      ext3    defaults        0       0
+/dev/sda2	 /mnt	auto	defaults,nobootwait,comment=cloudconfig	0	0
+/dev/sda3	 none	swap	sw,comment=cloudconfig	0	0
+
 EOFST
 
 cat<<EOSL > /etc/apt/sources.list
 deb http://archive.ubuntu.com/ubuntu lucid main universe multiverse restricted
+deb http://archive.ubuntu.com/ubuntu lucid-updates main universe multiverse restricted
+deb http://security.ubuntu.com/ubuntu lucid-security main universe multiverse restricted
 EOSL
 apt-get update && apt-get -y dist-upgrade
 
@@ -162,14 +166,14 @@ EOLG
 grep -q "do_initrd = Yes" /etc/kernel-img.conf  || \
     echo "do_initrd = Yes" >> /etc/kernel-img.conf
 
-apt-get install -y openssh-server curl locales vim grub-legacy-ec2 grub-pc linux-image-ec2
-dpkg -i /usr/local/pkg/*.deb
+env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-ec2 grub-legacy-ec2
+# dpkg -i /usr/local/pkg/*.deb
 
 # GRUB fixups
 
 # configure grub:
 if [ -f /boot/grub/menu.lst ]; then /bin/rm /boot/grub/menu.lst; fi
-update-grub -y 
+/usr/sbin/update-grub-legacy-ec2 -y
 /bin/cp /boot/grub/menu.lst /boot/grub/menu.lst.orig
 sed -e 's/^# kopt=root=.*/# kopt=root=LABEL=uec-rootfs ro xencons=hvc0 console=hvc0/' \
     -e 's/ root=UUID=.* ro/ root=LABEL=uec-rootfs ro xencons=hvc0 console=hvc0/g'     \
@@ -208,9 +212,11 @@ chmod 755 ${MNTPT}/root/osprep
 chroot ${MNTPT} /root/osprep || exit 1
 
 sync;sync;sync
+
 /bin/rm ${MNTPT}/etc/resolv.conf
 sleep 10;
-umount -lf /mnt/loop
+chroot ${MNTPT} /bin/umount /proc
+umount -lf ${MNTPT}
 sleep 10;
 #
 ######################################################################
