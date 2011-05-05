@@ -1,7 +1,10 @@
 #!/bin/bash
+WORKING=$1
+[ -z ${WORKING} ] && echo "working dir?" && exit
 [ ${UID} -ne 0 ] && echo "be you root?" && exit
-[ -z "$IMAGE" ] && export IMAGE=/opt/amazon/ubuntu.fs
+[ -z "$IMAGE" ] && export IMAGE=$(ls -1rt ${WORKING}/ubuntu.fs| tail -1)
 [ ! -f "$IMAGE" ] && echo "${IMAGE} not found" &&exit;
-mount -o loop ${IMAGE} /mnt/loop0 || exit
-chroot /mnt/loop0 || exit
-umount /mnt/loop0 || exit
+[ ! -d "${WORKING}/loop" ] && mkdir -p ${WORKING}/loop
+mount -o loop ${IMAGE} ${WORKING}/loop || exit
+chroot ${WORKING}/loop || exit
+umount ${WORKING}/loop || exit

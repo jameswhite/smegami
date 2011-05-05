@@ -1,20 +1,19 @@
 #!/bin/bash
 [ ${UID} -ne 0 ] && echo "be you root?" && exit
-[ -z IMAGE  ]&& IMAGE=/opt/amazon/ubuntu.fs
-
+WORKDIR=$1;
 cd $(dirname $0);. ./dependencies
 cd $(dirname $0);. ./credentials
 cd $(dirname $0);. ./ec2-setup
 
 usage(){
-    echo "$0 [lucid]"
+    echo "$0 [working_dir]"
 }
 [ ${UID} -ne 0 ] && echo "be you root?" && exit
 
 ######################################################################
 # see if we asked for another distribution
 #
-DIST=$1;
+
 FOUND_IT=0
 if [ -z ${DIST} ];then DIST=lucid; fi
 for d in lucid; do
@@ -38,13 +37,11 @@ fi
 ######################################################################
 # Create the base_system
 #
-/bin/rm ${IMAGE}*
-echo
 echo "Creating the disk image..."
 if [ ! -d ${IMDIR} ];then mkdir ${IMDIR};fi
 if [ ! -d ${MNTPT} ];then mkdir ${MNTPT}; fi
-#dd if=/dev/zero of=${IMAGE} count=4096 bs=1M
-dd if=/dev/zero of=${IMAGE} count=8192 bs=1M # we need 8GB to build the kernel
+dd if=/dev/zero of=${IMAGE} count=4096 bs=1M
+#dd if=/dev/zero of=${IMAGE} count=8192 bs=1M # we need 8GB to build the kernel
 echo "Formating the disk..."
 mke2fs -F -j ${IMAGE}
 mount -o loop ${IMAGE} ${MNTPT}
@@ -119,7 +116,6 @@ chmod 755 ${MNTPT}/etc/rc.local
 echo
 echo "Preparing the OS."
 cat<<EOF >${MNTPT}/root/osprep
-
 #!/bin/bash
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 cat<<EOFST >/etc/fstab
@@ -163,24 +159,22 @@ en_US.UTF-8 UTF-8
 EOLG
 /usr/sbin/locale-gen
 
-apt-get install -y openssh-server curl locales grub vim 
+grep -q "do_initrd = Yes" /etc/kernel-img.conf  || \
+    echo "do_initrd = Yes" >> /etc/kernel-img.conf
+
+apt-get install -y openssh-server curl locales vim grub-legacy-ec2 grub-pc linux-image-ec2
 dpkg -i /usr/local/pkg/*.deb
 
 # GRUB fixups
+
+# configure grub:
 if [ -f /boot/grub/menu.lst ]; then /bin/rm /boot/grub/menu.lst; fi
 update-grub -y 
 /bin/cp /boot/grub/menu.lst /boot/grub/menu.lst.orig
-sed -e 's/^# kopt=root=.*/# kopt=root=\/dev\/sda1 ro/' \
-    -e 's/ root=UUID=.* ro/ root=\/dev\/sda1 ro/g'     \
-    -e 's/^uuid.*/root            (hd0)/'              \
+sed -e 's/^# kopt=root=.*/# kopt=root=LABEL=uec-rootfs ro xencons=hvc0 console=hvc0/' \
+    -e 's/ root=UUID=.* ro/ root=LABEL=uec-rootfs ro xencons=hvc0 console=hvc0/g'     \
+    -e 's/^uuid.*/root            (hd0)/'                                             \
         /boot/grub/menu.lst.orig > /boot/grub/menu.lst
-
-# configure grub:
-
-if [ -d /lib/tls ];then
-    echo "Disabling tls..."
-    /bin/mv /lib/tls /lib/tls.disabled
-fi
 
 echo "Setting hostname..."
 echo "hostname-not-set" > /etc/hostname
@@ -221,3 +215,4 @@ sleep 10;
 #
 ######################################################################
 
+[ -d ${MNTPT} ] && rmdir ${MNTPT}
