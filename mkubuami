@@ -133,11 +133,12 @@ echo -n "."
 /sbin/MAKEDEV generic
 echo "Done."
 
-cat<<EOIF >>/etc/network/interfaces
+cat<<EOIF>/etc/network/interfaces
 auto lo
 iface lo inet loopback
 auto eth0
 iface eth0 inet dhcp 
+
 EOIF
 
 cat<<EOFST >>/etc/fstab
@@ -166,7 +167,7 @@ EOLG
 grep -q "do_initrd = Yes" /etc/kernel-img.conf  || \
     echo "do_initrd = Yes" >> /etc/kernel-img.conf
 
-env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-ec2 grub-legacy-ec2
+env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-ec2 grub-legacy-ec2 wget curl dhcp3-client cloud-init cloud-utils console-setup dbus dnsutils iproute iptables linux-ec2 rsync rsyslog screen strace sudo tcpdump telnet ubuntu-minimal
 # dpkg -i /usr/local/pkg/*.deb
 
 # GRUB fixups
