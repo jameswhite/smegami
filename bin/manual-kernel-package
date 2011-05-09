@@ -1,0 +1,75 @@
+#!/bin/bash
+################################################################################
+# Setting up variables
+################################################################################
+export INSPECT_INITRD=0
+export KERNEL=$(
+                 apt-cache search linux-image|\
+                 grep "^linux-image-[0-9]*\.[0-9]*\.[0-9]**-"|\
+                 awk '{print $1}'|\
+                 sed -e 's/linux-image-//' -e 's/-.*$//'|\
+                 sort -u| tail -1
+               )
+export BUILD_ROOT='/opt/local/src'
+export APPEND_VERSION=""
+################################################################################
+# Get the dependencies
+# Source: http://newbiedoc.sourceforge.net/system/kernel-pkg.html
+################################################################################
+# and unpack the kernel
+DEPPKGS="gcc kernel-package linux-source-${KERNEL} libc6-dev tk8.3"
+DEPPKGS="${DEPPKGS} libncurses5-dev fakeroot git-core build-essential"
+DEPPKGS="${DEPPKGS} zlib1g-dev ruby"
+NEED=""
+for pkg in $(echo ${DEPPKGS}); do 
+    dpkg -l | grep -q "^ii *${pkg}"    
+    if [ $? -ne 0 ];then 
+        NEED="${NEED} ${pkg}"
+    fi
+done
+if [ ! -z "$NEED" ];then 
+    echo "I need$NEED";
+fi
+
+if [ ! -f /usr/src/linux-source-${KERNEL}.tar.bz2 ]; then
+    echo -n "Getting kernel source: "
+    apt-get install -y --reinstall linux-source-${KERNEL} 
+fi
+
+if [ ! -d ${BUILD_ROOT}/linux-source-${KERNEL} ]; then
+     echo -n "Un-packing kernel source: "
+     cd ${BUILD_ROOT}; 
+     tar xjf /usr/src/linux-source-${KERNEL}.tar.bz2
+     if [ $? -eq 0 ];then 
+        echo "OK"
+     else
+        echo FAILED
+     fi
+fi
+
+# link it to /usr/src
+(cd /usr/src/; if [ -h "linux" ];then unlink linux ;fi)
+(cd /usr/src/; ln -s ${BUILD_ROOT}/linux-source-${KERNEL} linux)
+
+################################################################################
+# 
+################################################################################
+cp /boot/config-${KERNEL}-*-486 ${BUILD_ROOT}/linux-source-${KERNEL}/.config
+
+################################################################################
+# BUILDING THE PACKAGE
+################################################################################
+echo -n "Building old kernel config (taking all defaults): "
+(cd ${BUILD_ROOT}/linux-source-${KERNEL}; make oldconfig)
+
+# Customize it here
+(cd ${BUILD_ROOT}/linux-source-${KERNEL}; make menuconfig)
+
+echo -n "Making the kernel Package: "
+#fakeroot make-kpkg --append-to-version=${APPEND_VERSION} \
+#                   --revision 1 kernel_image
+cd ${BUILD_ROOT}/linux-source-${KERNEL} ;
+# CONFIG_LOCALVERSION="-net5501" && \
+fakeroot make-kpkg --revision 1 kernel_image
+
+

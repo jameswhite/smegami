@@ -16,7 +16,7 @@ usage(){
 
 FOUND_IT=0
 if [ -z ${DIST} ];then DIST=lucid; fi
-for d in lucid; do
+for d in lucid natty; do
     if [ "$DIST" == "${d}" ]; then FOUND_IT=1; fi
 done
 if [ ${FOUND_IT} -eq 0 ]; then usage ;exit -1; fi
@@ -149,9 +149,9 @@ LABEL=uec-rootfs /      ext3    defaults        0       0
 EOFST
 
 cat<<EOSL > /etc/apt/sources.list
-deb http://archive.ubuntu.com/ubuntu lucid main universe multiverse restricted
-deb http://archive.ubuntu.com/ubuntu lucid-updates main universe multiverse restricted
-deb http://security.ubuntu.com/ubuntu lucid-security main universe multiverse restricted
+deb http://archive.ubuntu.com/ubuntu ${DIST} main universe multiverse restricted
+deb http://archive.ubuntu.com/ubuntu ${DIST}-updates main universe multiverse restricted
+deb http://security.ubuntu.com/ubuntu ${DIST}-security main universe multiverse restricted
 EOSL
 apt-get update && apt-get -y dist-upgrade
 
@@ -167,7 +167,12 @@ EOLG
 grep -q "do_initrd = Yes" /etc/kernel-img.conf  || \
     echo "do_initrd = Yes" >> /etc/kernel-img.conf
 
-env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-ec2 grub-legacy-ec2 wget curl dhcp3-client cloud-init cloud-utils console-setup dbus dnsutils iproute iptables linux-ec2 rsync screen strace sudo tcpdump telnet 
+if [ "${DIST}" == "lucid" ]; then
+    env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-ec2 grub-legacy-ec2 wget curl dhcp3-client cloud-init cloud-utils console-setup dbus dnsutils iproute iptables linux-ec2 rsync screen strace sudo tcpdump telnet 
+fi
+if [ "${DIST}" == "natty" ]; then
+    env DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server curl locales vim grub-pc linux-image-virtual grub-legacy-ec2 wget curl dhcp3-client cloud-init cloud-utils console-setup dbus dnsutils iproute iptables rsync screen strace sudo tcpdump telnet 
+fi
 # dpkg -i /usr/local/pkg/*.deb
 
 # GRUB fixups
@@ -203,6 +208,7 @@ mv /etc/shadow.tmp /etc/shadow
 chmod 600 /etc/shadow
 chown root:root /etc/shadow
 ######################################################################
+/bin/mv /lib/tls /lib/tls.disabled
 umount /proc
 echo "OS prepped, exiting chroot..."
 exit;

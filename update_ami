@@ -11,7 +11,7 @@ BASEDIR=$(cd $(dirname $0);pwd)
 . ${BASEDIR}/ec2-setup
 
 [ -z ${IMAGE} ] && echo "image?" && exit
-[ -z ${DIST} ] && DIST=lucid
+[ -z ${DIST} ] && DIST=uknown
 ######################################################################
 # Bundle the image for shipping to S3
 #
@@ -61,7 +61,7 @@ if [ ! -z "${INSTANCE}" ];then
     while [ ${CONSOLE_OUTPUT_LENGTH} -lt 10 ]; do 
         clear; 
         api_cmd ec2-get-console-output ${INSTANCE} > ${CONSOLE_OUTPUT} 2>&1; 
-        sleep 30; 
+        sleep 15; 
         CONSOLE_OUTPUT_LENGTH=$(wc -l ${CONSOLE_OUTPUT}|awk '{print $1}'); 
     done
     export LAST_LENGTH=${CONSOLE_OUTPUT_LENGTH}
@@ -69,7 +69,7 @@ if [ ! -z "${INSTANCE}" ];then
         clear; 
         LAST_LENGTH=${CONSOLE_OUTPUT_LENGTH}; 
         api_cmd ec2-get-console-output ${INSTANCE} > ${CONSOLE_OUTPUT} 2>&1;
-        sleep 20; 
+        sleep 15; 
         CONSOLE_OUTPUT_LENGTH=$(wc -l ${CONSOLE_OUTPUT}|awk '{print $1}'); 
     done
     cat ${CONSOLE_OUTPUT}
